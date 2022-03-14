@@ -93,3 +93,11 @@ def parse(text: str):
         tree = parser.parse(text)
         result = SqlTransformer().transform(tree)
         return result
+
+
+def new_parse(text: str):
+    with open(path + "/grammer2.lark") as grammer:
+        parser = Lark(grammer.read(), start="start")
+        tree = parser.parse(text)
+        result = SqlTransformer().transform(tree)
+        return result

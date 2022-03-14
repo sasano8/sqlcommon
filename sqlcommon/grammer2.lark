@@ -1,0 +1,53 @@
+// https://github.com/ronsavage/SQL/blob/master/sql-2016.ebnf
+// https://github.com/lark-parser/lark/blob/master/lark/grammars/common.lark
+// https://github.com/zbrookle/sql_to_ibis/blob/main/sql_to_ibis/grammar/sql.lark
+
+?start: value
+
+
+//select: "SELECT"i [SELECT_CONSTRAINT] returning_expr "FROM"i [(from_expr ",")*] from_expr [ "WHERE"i where_expr ] [ "GROUP"i "BY"i [(groupby_expr ",")*] groupby_expr ] [ "HAVING"i having_expr] [ "WINDOW"i window_expr ]
+// select: "SELECT"i [(returning_expr ",")*] returning_expr "FROM"i [(from_expr ",")*] from_expr
+
+// ?from_expr: from_item -> from_expression
+// ?returning_expr: returning_item -> returning_expression
+
+// returning_item: [name "."] name [ [ "AS"i ] alias ] -> colmun
+
+// from_item: [name "."] name [ [ "AS"i ] alias ] -> table
+            // | join -> join
+            // | cross_join -> cross_join_expression
+            // | subquery
+
+?value: SIGNED_INT      -> int
+        | SIGNED_FLOAT      -> float
+        | "true"i             -> true
+        | "false"i            -> false
+        | "null"i             -> null
+        | "ARRAY"i "[" [value ("," value)*] "]" -> array
+        | STRING_LITERAL -> str
+        | ESCAPED_STRING -> identifier
+        | CNAME -> identifier
+
+
+// string_literal: "'" /.*?/* "'" ( separator "'" /.*?/* "'" )*
+STRING_LITERAL: "'" /.*?/* "'" ( "'" /.*?/* "'" )*
+
+COMMENT_SIMPLE: /--[^\n]*/
+COMMENT_BRACKET: "/*" /.*/ "*/"
+
+%import common.ESCAPED_STRING
+%import common.WS
+%import common.CNAME
+%import common.SIGNED_INT
+%import common.SIGNED_FLOAT
+%import common.NEWLINE
+
+
+%ignore WS
+%ignore NEWLINE
+%ignore COMMENT_SIMPLE
+%ignore COMMENT_BRACKET
+
+
+// SELECT '{"bar": "baz", "balance": 7.77, "active":false}'::json;
+// SELECT '{"bar": "baz", "balance": 7.77, "active":false}'::jsonb;
