@@ -1,0 +1,48 @@
+<?xml version="1.0"?>
+<SQL version="">
+    <DDL>
+    </DDL>
+    <SELECT>
+        <QUERY>
+            <FROM>
+                <TABLE value="users"/>
+            </FROM>
+            <WHERE>
+            </WHERE>
+            <JOIN>
+            </JOIN>
+            <ORDERBY>
+            </ORDERBY>
+            <LIMIT><VAL value="1" /></LIMIT>
+            <OFFSET><VAL value="1" /></OFFSET>
+        </QUERY>
+        <RETURNING distinct="false">
+            <COLUMN value="id"/>
+            <ALIAS value="fullname">
+                <COLUMN value="name"/>
+            </ALIAS>
+            <FUNC value="max"><COLUMN value="amount"/></FUNC>
+            <VAR key="param1" />
+            <VAL value="1" />
+        </RETURNING>
+        <UNION></UNION>
+    </SELECT>
+    <DELETE>
+        <QUERY>
+            <FROM>
+                <TABLE value="users"/>
+            </FROM>
+        </QUERY>
+    </DELETE>
+    <VARS>
+        <KV key="param1" value="null" />
+        <KV key="param2" value="'a'" />
+        <KV key="param3" value="1" />
+        <KV key="param4" value="0.1" />
+        <KV key="param5" value="true" />
+        <KV key="param6" value='[1, 2]' />
+        <KV key="param7" value='{"a": 1}' />
+    </VARS>
+    <SERVER_VARS>
+    </SERVER_VARS>
+</SQL>
