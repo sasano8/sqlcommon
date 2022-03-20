@@ -1,7 +1,7 @@
 import pytest
 from lark.exceptions import UnexpectedCharacters
 
-from sqlcommon import new_parse, parse
+from sqlcommon import get_parser, new_parse, parse
 
 
 def test_bug():
@@ -34,22 +34,87 @@ def test_new_parser_bug():
 
 
 def test_new_parser():
+    new_parse = get_parser(start="value", cls_transformer=None)
+
     assert new_parse("1").data == "int"
     assert new_parse("1.0").data == "float"
-    assert new_parse('"a"').data == "identifier"
-    assert new_parse("a").data == "identifier"
     assert new_parse("null").data == "null"
     assert new_parse("NULL").data == "null"
-    assert new_parse("true") == True
-    assert new_parse("True") == True
-    assert new_parse("false") == False
-    assert new_parse("FALSE") == False
+    assert new_parse("true").data == "true"
+    assert new_parse("True").data == "true"
+    assert new_parse("false").data == "false"
+    assert new_parse("FALSE").data == "false"
     assert new_parse("'a'").data == "str"
     assert new_parse("''").data == "str"
     assert new_parse("''''").data == "str"
+    assert new_parse("''  ''").data == "str"
+    assert new_parse("'' -- comment\n ''").data == "str"
+    assert new_parse("'' /* comment */ ''").data == "str"
 
     with pytest.raises(UnexpectedCharacters):
         assert new_parse("'")
 
     with pytest.raises(UnexpectedCharacters):
         assert new_parse("'''")
+
+
+def test_expr():
+    new_parse = get_parser(start="expr", cls_transformer=None)
+
+    assert new_parse('"a"').data == "identifier"
+    assert new_parse("a").data == "identifier"
+    assert new_parse('"a"."b"').data == "identifier"
+    assert new_parse("a.b").data == "identifier"
+    assert new_parse('"a"()').data == "func"
+    assert new_parse("a()").data == "func"
+    assert new_parse('"a"."b"()').data == "func"
+    assert new_parse("a.b()").data == "func"
+    assert new_parse('"a"(1)').data == "func"
+    assert new_parse("a(1)").data == "func"
+    assert new_parse('"a"."b"(1)').data == "func"
+    assert new_parse("a.b(1)").data == "func"
+    assert new_parse("a(\n1)").data == "func"
+    assert new_parse("a(1\n)").data == "func"
+    assert new_parse("a(\n1\n)").data == "func"
+
+
+def test_stmt():
+    new_parse = get_parser(start="stmt", cls_transformer=None)
+
+    assert new_parse("select 1")
+    assert new_parse("select *")
+    assert new_parse("select * from users")
+    assert new_parse("select * from users where 1")
+
+
+def test_keywords():
+    new_parse = get_parser(start="stmt")
+
+    with pytest.raises(Exception, match="Invalid syntax"):
+        result = new_parse("select limit")
+
+
+def test_transform():
+    new_parse = get_parser(start="stmt")
+    # result = new_parse("select 'a''b', sum(1) order by name asc")
+    # result = new_parse("select name + 1 from users")
+    result = new_parse("select name from users")
+
+    assert result["type"] == "SELECT"
+    assert [(x["type"], x["name"]) for x in result["RETURNING"]] == [
+        ("identifier", "name")
+    ]
+    assert [(x["type"], x["name"]) for x in result["FROM"]] == [("identifier", "users")]
+    import json
+
+    result = new_parse("select sum(name), 1 + 1 from users")
+    print(json.dumps(result, indent=2))
+
+    result = new_parse("select 1 from users")
+    assert result
+
+
+def test_join():
+    new_parse = get_parser(start="stmt")
+    result = new_parse("select * from users1 join users2 on users1.id = users2.id")
+    result = new_parse("select * from users1 join users2 using(id)")
