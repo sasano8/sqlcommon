@@ -3,6 +3,22 @@ from typing import Literal
 
 from lark import Lark, Transformer, v_args
 
+from .tokens import (
+    BinaryOperator,
+    Bracket,
+    Column,
+    Expressions,
+    Func,
+    Identifier,
+    JoinStatement,
+    Postfix,
+    Prefix,
+    SelectStatement,
+    Table,
+    UnionStatement,
+    Value,
+)
+
 path = os.path.dirname(__file__)
 
 
@@ -47,11 +63,11 @@ class CommonTransformer(Transformer):
 
     def identifier(self, tree):
         schema_or_table, name = tree
-        return {"type": "identifier", "parent": schema_or_table, "name": name}
+        return Identifier(name=name, parent=schema_or_table)
 
     def func(self, tree):
         schema_or_table, name, expr = tree
-        return {"type": "func", "parent": schema_or_table, "name": name, "args": [expr]}
+        return Func(name=name, parent=schema_or_table, args=Expressions(expr))
 
     def item(self, tree):
         obj, alias = tree
@@ -59,7 +75,8 @@ class CommonTransformer(Transformer):
             obj["is_item"] = True
             obj["alias"] = alias
         else:
-            obj = {"type": "value", "value": obj, "alias": alias, "is_item": True}
+            obj = Value(obj, alias=alias)
+            obj["is_item"] = True
 
         return obj
 
@@ -67,34 +84,16 @@ class CommonTransformer(Transformer):
         return str(tree).upper()
 
     def sign_expr(self, tree):
-        return {"type": "bo", "op": tree[0], "expr": [tree[1]]}
+        return Postfix(op=tree[0], expr=Expressions(tree[1]))
 
     def bo_expr(self, tree):
-        return {"type": "bo", "op": tree[1], "expr": [tree[0], tree[2]]}
+        return BinaryOperator(op=tree[1], expr=Expressions(tree[0], tree[2]))
 
     def expr(self, tree):
         return tree
 
-    items = lambda self, tree: list(tree)
-    order_items = lambda self, tree: list(tree)
-
-
-class SelectTransformer(CommonTransformer):
-    returning_stmt = lambda self, tree: Node("RETURNING", tree[0])
-    from_stmt = lambda self, tree: Node("FROM", tree[0])
-    orderby_stmt = lambda self, tree: Node("ORDERBY", tree[0])
-    groupby_stmt = lambda self, tree: Node("GROUPBY", tree[0])
-    where_stmt = lambda self, tree: Node("WHERE", tree[0])
-    having_stmt = lambda self, tree: Node("HAVING", tree[0])
-    window_stmt = lambda self, tree: Node("WINDOW", tree[0])
-    limit_stmt = lambda self, tree: Node("LIMIT", tree[0])
-    offset_stmt = lambda self, tree: Node("OFFSET", tree[0])
-
-    query_stmt = lambda self, tree: Node("QUERY", list(tree))
-
-    union_all_stmt = lambda self, tree: self._union_stmt("UNION", tree)
-    intersect_stmt = lambda self, tree: self._union_stmt("INTERSECT", tree)
-    except_stmt = lambda self, tree: self._union_stmt("EXCEPT", tree)
+    items = lambda self, tree: Expressions(*tree)
+    order_items = lambda self, tree: Expressions(*tree)
 
     def order_item(self, tree):
         obj, asc_or_desc = tree
@@ -110,28 +109,59 @@ class SelectTransformer(CommonTransformer):
         obj["is_asc"] = is_asc
         return obj
 
-    def join_stmt(self, tree):
-        items, expression = tree
-        return Node("JOIN", [Node("FROM", items), expression])
+
+class SelectTransformer(CommonTransformer):
+    returning_stmt = lambda self, tree: Node("RETURNING", tree[0])
+    from_stmt = lambda self, tree: Node("FROM", tree[0])
+    orderby_stmt = lambda self, tree: Node("ORDERBY", tree[0])
+    groupby_stmt = lambda self, tree: Node("GROUPBY", tree[0])
+    where_stmt = lambda self, tree: Node("WHERE", tree[0])
+    having_stmt = lambda self, tree: Node("HAVING", tree[0])
+    window_stmt = lambda self, tree: Node("WINDOW", tree[0])
+    limit_stmt = lambda self, tree: Node("LIMIT", tree[0])
+    offset_stmt = lambda self, tree: Node("OFFSET", tree[0])
+
+    query_stmt = lambda self, tree: Node("QUERY", Expressions(*tree))
+
+    union_all_stmt = lambda self, tree: self._union_stmt("UNION", tree)
+    intersect_stmt = lambda self, tree: self._union_stmt("INTERSECT", tree)
+    except_stmt = lambda self, tree: self._union_stmt("EXCEPT", tree)
+
+    def join_type(self, tree):
+        return "".join(tree).upper()
 
     def join_on_items(self, tree):
-        (expressions,) = tree
-        return expressions
+        return tree
 
     def join_using_items(self, tree):
-        (names,) = tree
-        return names
+        def create_identifier(name):
+            obj = Identifier(name=name, parent=None)
+            obj["is_item"] = True
+            # obj["alias"] = None
+            return obj
+
+        return [create_identifier(x) for x in tree]
 
     def join_on_stmt(self, tree):
-        (expressions,) = tree
-        return Node("ON", expressions)
+        return Node("ON", tree[0])
 
     def join_using_stmt(self, tree):
-        (names,) = tree
-        return Node("USING", names)
+        return Node("USING", tree[0])
+
+    def join_stmt(self, tree):
+        join_type, items, on_or_using_stmt = tree
+        if on_or_using_stmt[0] == "ON":
+            return JoinStatement(join_type, from_=items, on=on_or_using_stmt[1])
+        elif on_or_using_stmt[0] == "USING":
+            return JoinStatement(join_type, from_=items, using=on_or_using_stmt[1])
+        else:
+            raise RuntimeError()
+
+    def join_stmts(self, tree):
+        return Node("JOIN", Expressions(*tree))
 
     def _union_stmt(self, union_name, tree):
-        return Node(union_name, list(tree))
+        return Node(union_name, Expressions(*tree))
 
     def select(self, tree):
         returning_stmt, query_stmt, orderby_stmt, union_stmt = tree
@@ -159,7 +189,10 @@ class SelectTransformer(CommonTransformer):
 
         for stmt in query_stmt:
             if stmt is not None:
-                dic[stmt[0]].append(stmt[1])
+                try:
+                    dic[stmt[0]].append(stmt[1])
+                except KeyError:
+                    raise
 
         for stmt in orderby_stmt or []:
             dic[stmt[0]].append(stmt[1])
@@ -172,46 +205,39 @@ class SelectTransformer(CommonTransformer):
         u3 = dic.pop("EXCEPT", None)
 
         if u1:
-            dic.setdefault("UNION", []).append({"UNION": u1})
+            dic.setdefault("unions", Expressions()).append(UnionStatement("UNION", u1))
 
         if u2:
-            dic.setdefault("UNION", []).append({"INTERSECT": u2})
+            dic.setdefault("unions", Expressions()).append(
+                UnionStatement("INTERSECT", u2)
+            )
 
         if u3:
-            dic.setdefault("UNION", []).append({"EXCEPT": u3})
+            dic.setdefault("unions", Expressions()).append(UnionStatement("EXCEPT", u3))
 
         for values in dic.values():
             if len(values) > 1:
                 raise RuntimeError()
 
-        return {"type": "SELECT", **{k: v[0] for k, v in dic.items() if len(v) == 1}}
+        dic["from_"] = dic.pop("FROM")
+        dic["joins"] = dic.pop("JOIN")
+
+        stmt = {**{k.lower(): v[0] for k, v in dic.items() if len(v) == 1}}
+
+        return SelectStatement(**stmt)
 
 
 class SqlTransformer(SelectTransformer):
     ...
 
 
-def parse(text: str):
-    with open(path + "/grammer.lark") as grammer:
-        parser = Lark(grammer.read(), start="start")
-        tree = parser.parse(text)
-        result = SqlTransformer().transform(tree)
-        return result
-
-
-def new_parse(text: str):
-    with open(path + "/grammer2.lark") as grammer:
-        parser = Lark(grammer.read(), start="start")
-        tree = parser.parse(text)
-        result = SqlTransformer().transform(tree)
-        return result
-
-
 def get_parser(
-    start: Literal["start", "value", "stmt"] = "start", cls_transformer=SqlTransformer
+    start: Literal["start", "value", "stmt"] = "start",
+    cls_transformer=SqlTransformer,
+    parser_type: Literal["earley", "lalr"] = "earley",
 ):
     with open(path + "/grammer2.lark") as grammer:
-        parser = Lark(grammer.read(), start=start)
+        parser = Lark(grammer.read(), start=start, parser=parser_type)
 
         if cls_transformer is None:
 

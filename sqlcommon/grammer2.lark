@@ -13,20 +13,27 @@
 
 select: "SELECT"i returning_stmt [query_stmt] [ orderby_stmt ] [union_stmt] [";"]
 subquery: "(" select ")"
+// subquery: "(" select ")" [ [ "AS"i ] name ]
 
 item: expr [ [ "AS"i ] name ]
 order_item: expr [ASC_OR_DESC]
+
 items: [(item ",")*] item
+
+
 join_on_items: [(expr ",")*] expr
 join_using_items: [(name ",")*] name
 order_items: [(order_item ",")*] order_item
 // args: [(expr ",")*]
 
 returning_stmt: items
+// select t1.* from demo t1 union ALL select * from demo t2      ok
+// select t2.* from demo t1 union ALL select * from demo t2      db error: ERROR: missing FROM-clause entry for table "t2"
 ?union_stmt: "UNION"i ["ALL"i] ["DISTINCT"i] ["("] select [")"] -> union_all_stmt
     | "INTERSECT"i ["ALL"i] ["DISTINCT"i] ["("] select [")"] -> intersect_stmt
     | "EXCEPT"i ["ALL"i] ["DISTINCT"i] ["("] select [")"] -> except_stmt
-query_stmt: from_stmt [ join_stmt ] [ groupby_stmt ] [ where_stmt ] [ having_stmt ] [ window_stmt ] [ limit_stmt ] [ offset_stmt ]
+query_stmt: from_stmt [ join_stmts ] [ groupby_stmt ] [ where_stmt ] [ having_stmt ] [ window_stmt ] [ limit_stmt ] [ offset_stmt ]
+// from_stmt: "FROM"i items
 from_stmt: "FROM"i items
 // JOINはデフォルトでINNER JOINを示す
 // JOINは複数回登場させることができる
@@ -36,17 +43,42 @@ from_stmt: "FROM"i items
 // left join と left outer joinは同じ
 // NATURAL 同じカラム名を自動結合する（ON, USINGを省略できる）
 // join_table:
+
+// mysql
 // table_reference [INNER | CROSS] JOIN table_factor [join_condition]
 //   | table_reference STRAIGHT_JOIN table_factor
 //   | table_reference STRAIGHT_JOIN table_factor ON conditional_expr
 //   | table_reference {LEFT|RIGHT} [OUTER] JOIN table_reference join_condition
 //   | table_reference NATURAL [{LEFT|RIGHT} [OUTER]] JOIN table_factor
-join_stmt: ["NATURAL"i] (["INNER"i] | ["CROSS"i] | ["LEFT"i] | ["LEFT"i "OUTER"i] | ["RIGHT"i] | ["RIGHT"i "OUTER"i]) ("JOIN"i | "STRAIGHT_JOIN"i) items (join_on_stmt | join_using_stmt)
+
+// postgres
+// T1 { [INNER] | { LEFT | RIGHT | FULL } [OUTER] } JOIN T2 ON boolean_expression
+// T1 { [INNER] | { LEFT | RIGHT | FULL } [OUTER] } JOIN T2 USING ( join column list )
+// T1 NATURAL { [INNER] | { LEFT | RIGHT | FULL } [OUTER] } JOIN T2
+
+// larkはこのような改行の構文が使用できない
+// (["INNER"i]
+//    | ["CROSS"i]
+// )
+// RESERVED_WORDSより優先させる
+// ! - keep keyword
+!join_type.10: "INNER"i
+    | "CROSS"i
+    | "LEFT"i
+    | "LEFT"i "OUTER"i
+    | "RIGHT"i
+    | "RIGHT"i "OUTER"i
+    | "FULL"i
+    | "FULL"i "OUTER"i
+join_stmts: join_stmt*
+join_stmt: ["NATURAL"i] [join_type] ("JOIN"i | "STRAIGHT_JOIN"i) items (join_on_stmt | join_using_stmt)
 join_on_stmt: "ON"i join_on_items
 join_using_stmt: "USING"i "(" join_using_items ")"
 groupby_stmt: "GROUP"i "BY"i items
 where_stmt: "WHERE"i expr
 having_stmt: "HAVING"i expr
+
+//# WINDOW ウインドウ名 AS (・・・)
 window_stmt: "WINDOW"i expr
 orderby_stmt: "ORDER"i "BY"i order_items
 limit_stmt: "LIMIT"i expr
@@ -67,7 +99,9 @@ ASC_OR_DESC: "ASC"i | "DESC"i
         | "false"i            -> false
         | "null"i             -> null
         | "ARRAY"i "[" [expr ("," expr)*] "]" -> array
-        | STRING_LITERAL (separator* STRING_LITERAL)* -> str
+        // | STRING_LITERAL (SEPARATOR* STRING_LITERAL)* -> str
+        // | STRING_LITERAL STRING_LITERAL* -> str
+        | STRING_LITERAL+ -> str
 
 STRING_LITERAL: "'" _STRING_ESC_INNER "'"
 ?name: RESERVED_WORDS | NAME
@@ -75,10 +109,10 @@ NAME: ESCAPED_STRING | CNAME
 STAR: "*"
 identifier: [name "."] (name | STAR)
 func: [name "."] name "(" expr* ")"
-separator: WS | NEWLINE | COMMENT_SIMPLE | COMMENT_BRACKET
 
 COMMENT_SIMPLE: /--[^\n]*/
-COMMENT_BRACKET: "/*" /.*/ "*/"
+COMMENT_BRACKET: /\/\*.+?\*\//
+// COMMENT_BRACKET: "/*" /.*/ "*/"
 // プレースホルダの形式は DBAPIで異なる
 // PLACEHOLDER: :{id}
 // cx_Oracle: :x、psycopg2: %(x)s %s
@@ -92,11 +126,13 @@ COMMENT_BRACKET: "/*" /.*/ "*/"
 %import common.NEWLINE
 %import common._STRING_ESC_INNER
 
+SEPARATOR: COMMENT_SIMPLE | COMMENT_BRACKET | WS | NEWLINE
 
-%ignore WS
-%ignore NEWLINE
 %ignore COMMENT_SIMPLE
 %ignore COMMENT_BRACKET
+%ignore WS
+%ignore NEWLINE
+%ignore SEPARATOR
 
 RESERVED_WORDS: "SELECT"i
     | "DELETE"i
@@ -219,6 +255,7 @@ RESERVED_WORDS: "SELECT"i
     | op
 
 
+
 BOPS: "="
     | "!="
     | "<>"
@@ -291,3 +328,9 @@ SIGN: "NOT"i
 
 // SELECT '{"bar": "baz", "balance": 7.77, "active":false}'::json;
 // SELECT '{"bar": "baz", "balance": 7.77, "active":false}'::jsonb;
+
+// primary_expr
+// postfix_expr
+// prefix_expr
+
+// jsonとxmlの相互互換性を維持するためjsonmlというjson互換の表現方法がある

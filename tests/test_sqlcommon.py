@@ -1,36 +1,23 @@
 import pytest
 from lark.exceptions import UnexpectedCharacters
 
-from sqlcommon import get_parser, new_parse, parse
-
-
-def test_bug():
-
-    try:
-        result = parse("select 'a'")  # no from
-        result = parse("select myfunc(1)")  # func
-        result = parse("select myschema.myfunc(1)")  # schema + func
-        result = parse("select 1 from users")  # number
-        result = parse("select 'a' from users")  # string
-    except:
-        ...
-
-
-def test_parse():
-    result = parse("select name from users, users2")
-    result = parse("select schema.name col1 from app.users t1, app.users2 t2")
-    result = parse("select * from app.users")
-    result = parse("select t1.name c1, t1.name c2 from app.users t1")
-    result = parse('select * from "mytable"')  # 関数呼び出しに対応していない
-
+from sqlcommon import get_parser
 
 # http://teiid.github.io/teiid-documents/9.0.x/content/reference/BNF_for_SQL_Grammar.html
 
 
+# TODO: 既知のバグを直す
 def test_new_parser_bug():
+    new_parse = get_parser(start="value", cls_transformer=None)
+
     with pytest.raises(Exception):
         assert new_parse("''-- comment\n''").data == "str"  # コメントをはさめること
         assert new_parse("''/*\n comment\n*/''").data == "str"  # コメントをはさめること
+        assert (
+            new_parse('select "users1".* from users1')
+            == "SELECT 'users'.* FROM users1"  # ダブルクォートでない＆1が消えている
+        )
+        assert new_parse("select 'a''b'") == "SELECT 'ab'"  # シングルクォートが消えている
 
 
 def test_new_parser():
@@ -38,6 +25,7 @@ def test_new_parser():
 
     assert new_parse("1").data == "int"
     assert new_parse("1.0").data == "float"
+    assert new_parse("1.1").data == "float"
     assert new_parse("null").data == "null"
     assert new_parse("NULL").data == "null"
     assert new_parse("true").data == "true"
@@ -49,7 +37,14 @@ def test_new_parser():
     assert new_parse("''''").data == "str"
     assert new_parse("''  ''").data == "str"
     assert new_parse("'' -- comment\n ''").data == "str"
+    assert len(new_parse("'' -- comment ''").children) == 1
+    assert len(new_parse("'' \n -- comment ''").children) == 1
+    assert len(new_parse("'' -- comment\n ''").children) == 2
     assert new_parse("'' /* comment */ ''").data == "str"
+    assert len(new_parse("'' /* comment */ ''").children) == 2
+    assert len(new_parse("'' \n /* comment */ ''").children) == 2
+    # assert len(new_parse("'' /* comment \n */ ''").children) == 2  # TODO: 解析エラー
+    assert len(new_parse("'' /* comment */ \n ''").children) == 2
 
     with pytest.raises(UnexpectedCharacters):
         assert new_parse("'")
@@ -101,10 +96,12 @@ def test_transform():
     result = new_parse("select name from users")
 
     assert result["type"] == "SELECT"
-    assert [(x["type"], x["name"]) for x in result["RETURNING"]] == [
+    assert [(x["type"], x["name"]) for x in result["returning"]] == [
         ("identifier", "name")
     ]
-    assert [(x["type"], x["name"]) for x in result["FROM"]] == [("identifier", "users")]
+    assert [(x["type"], x["name"]) for x in result["from_"]] == [
+        ("identifier", "users")
+    ]
     import json
 
     result = new_parse("select sum(name), 1 + 1 from users")
@@ -116,5 +113,35 @@ def test_transform():
 
 def test_join():
     new_parse = get_parser(start="stmt")
-    result = new_parse("select * from users1 join users2 on users1.id = users2.id")
+    result = new_parse(
+        "select * from users1 join users2 on users1.id = users2.id, users1.name = users2.name"
+    )
+    assert result
     result = new_parse("select * from users1 join users2 using(id)")
+    assert result
+    result = new_parse("select * from users1 inner join users2 using(id)")
+    assert result
+
+    with pytest.raises(UnexpectedCharacters):
+        result = new_parse("select * from users1 inner outer join users2 using(id)")
+
+    result = new_parse("select * from users1 cross join users2 using(id)")
+    assert result
+
+    with pytest.raises(UnexpectedCharacters):
+        result = new_parse("select * from users1 cross outer join users2 using(id)")
+
+    result = new_parse("select * from users1 left join users2 using(id)")
+    assert result
+    result = new_parse("select * from users1 left outer join users2 using(id)")
+    assert result
+    result = new_parse("select * from users1 right join users2 using(id)")
+    assert result
+    result = new_parse("select * from users1 right outer join users2 using(id)")
+    assert result
+    result = new_parse("select * from users1 full join users2 using(id)")
+    assert result
+    result = new_parse("select * from users1 full outer join users2 using(id,name)")
+    assert result
+    result = new_parse("select * from users1 where 1.1")
+    assert result.to_sql()
