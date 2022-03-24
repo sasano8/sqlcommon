@@ -128,7 +128,7 @@ class SelectTransformer(CommonTransformer):
     except_stmt = lambda self, tree: self._union_stmt("EXCEPT", tree)
 
     def join_type(self, tree):
-        return "".join(tree).upper()
+        return " ".join(tree).upper()
 
     def join_on_items(self, tree):
         return tree

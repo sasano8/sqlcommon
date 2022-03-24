@@ -11,6 +11,8 @@ def to_sql(obj):
         return obj.to_sql()
     elif isinstance(obj, (int, str, float, bool)):
         return Value(obj).to_sql()
+    elif obj is None:
+        return Value(obj).to_sql()
     elif isinstance(obj, list):
         return Expressions(*obj).to_sql()
     else:
@@ -31,7 +33,7 @@ class Expressions(list):
             self.append(x)
 
     def to_sql(self):
-        return " ".join(x for x in self.tokens())
+        return ", ".join(x for x in self.tokens())
 
     def tokens(self):
         yield from tokenize(self)
@@ -80,6 +82,49 @@ class BinaryOperator(AstBase):
         yield to_sql(self["expr"][1])
 
 
+# def get_name(self: dict):
+#     name = Name.get_name(self["name"])
+
+#     if self["parent"] is not None:
+#         return Name.get_name(self["parent"]) + "." + name
+#     else:
+#         return name
+
+
+class Name(AstBase):
+    def __init__(self, value: str, quote=True):
+        self["type"] = "name"
+        self["value"] = value
+        self["quote"] = quote
+
+    def tokens(self):
+        if self["quote"]:
+            yield '"' + self["value"] + '"'
+        else:
+            yield self["value"]
+
+    def to_str(self):
+        return "".join(self.tokens())
+
+    @classmethod
+    def get_name(cls, name):
+        if isinstance(name, str):
+            return Name(name, quote=False).to_str()
+        elif isinstance(name, Name):
+            return name.to_str()
+        else:
+            raise TypeError()
+
+    @classmethod
+    def from_obj(cls, name):
+        if isinstance(name, str):
+            return Name(name, quote=False)
+        elif isinstance(name, Name):
+            return Name(name["value"], name["quote"])
+        else:
+            raise TypeError()
+
+
 class Identifier(AstBase):
     def __init__(self, name: str, parent: str = None, alias: str = None):
         self["type"] = "identifier"
@@ -87,11 +132,16 @@ class Identifier(AstBase):
         self["parent"] = parent
         self["alias"] = alias
 
-    def tokens(self):
+    def get_name(self: dict):
+        name = Name.get_name(self["name"])
+
         if self["parent"] is not None:
-            yield to_sql(self["parent"]) + "." + self["name"]
+            return Name.get_name(self["parent"]) + "." + name
         else:
-            yield self["name"]
+            return name
+
+    def tokens(self):
+        yield self.get_name()
 
 
 class Table(Identifier):
@@ -106,7 +156,7 @@ class Column(Identifier):
 #     ...
 
 
-class Func(AstBase):
+class Func(Identifier):
     def __init__(
         self, name: str, parent: str = None, args: Expressions = None, alias: str = None
     ):
@@ -117,12 +167,9 @@ class Func(AstBase):
         self["alias"] = alias
 
     def tokens(self):
+        name = self.get_name()
         args = ", ".join(tokenize(self["args"]))
-
-        if self["parent"] is not None:
-            yield to_sql(self["parent"]) + "." + self["name"] + "(" + args + ")"
-        else:
-            yield self["name"] + "(" + args + ")"
+        yield name + "(" + args + ")"
 
         # if self["alias"] is not None:
         #     yield str(self["alias"])
@@ -188,8 +235,6 @@ class SelectStatement(AstBase):
             yield to_sql(self["from_"])
 
         if self.get("joins", None):
-            joins = self["joins"]
-            yield "JOIN<NOT IMPLEMENT>"
             yield to_sql(self["joins"])
 
         if self.get("groupby", None):
@@ -221,18 +266,36 @@ class SelectStatement(AstBase):
             yield to_sql(self["offset"])
 
         if self.get("unions", None):
-            unions = self["unions"]
-            yield "UNION<NOT IMPLEMENT>"
-            yield to_sql(self["joins"])
+            yield to_sql(self["unions"])
 
 
 class JoinStatement(AstBase):
     def __init__(self, join_type: str, from_, on=None, using=None):
         self["type"] = "join"
+
+        if join_type is None:
+            join_type = "INNER"
+
         self["join_type"] = join_type
         self["from_"] = from_
-        self["on"] = on
-        self["using"] = using
+
+        if on is not None:
+            self["on"] = on
+
+        if using is not None:
+            self["using"] = using
+
+    def tokens(self):
+        yield self["join_type"]
+        yield "JOIN"
+        yield to_sql(self["from_"])
+
+        if "on" in self:
+            yield "ON"
+            yield to_sql(self["on"])
+
+        if "using" in self:
+            yield "USING(" + to_sql(self["using"]) + ")"
 
 
 class UnionStatement(AstBase):
@@ -240,3 +303,7 @@ class UnionStatement(AstBase):
         self["type"] = "union"
         self["union_type"] = union_type  # UNION, INTERSECT, EXCEPT
         self["select"] = select  # UNION, INTERSECT, EXCEPT
+
+    def tokens(self):
+        yield self["union_type"]
+        yield to_sql(self["select"])

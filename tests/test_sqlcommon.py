@@ -143,5 +143,6 @@ def test_join():
     assert result
     result = new_parse("select * from users1 full outer join users2 using(id,name)")
     assert result
-    result = new_parse("select * from users1 where 1.1")
+    result = new_parse("select id, name from users1")
+    assert result
     assert result.to_sql()

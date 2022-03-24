@@ -1,4 +1,4 @@
-all: format-black format-isort test
+all: format test
 
 format: format-black format-isort
 
