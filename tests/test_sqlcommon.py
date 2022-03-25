@@ -1,9 +1,33 @@
 import pytest
-from lark.exceptions import UnexpectedCharacters
+from lark.exceptions import UnexpectedCharacters as _UnexpectedCharacters
 
 from sqlcommon import get_parser
 
 # http://teiid.github.io/teiid-documents/9.0.x/content/reference/BNF_for_SQL_Grammar.html
+
+
+def UnexpectedCharacters():
+    return _UnexpectedCharacters(" ", 0, 0, 0)
+
+
+@pytest.fixture(scope="session")
+def value_parser():
+    return get_parser(start="value", cls_transformer=None)
+
+
+@pytest.fixture(scope="session")
+def expr_parser():
+    return get_parser(start="expr", cls_transformer=None)
+
+
+@pytest.fixture(scope="session")
+def stmt_parser():
+    return get_parser(start="stmt", cls_transformer=None)
+
+
+@pytest.fixture(scope="session")
+def parser():
+    return get_parser(start="stmt")
 
 
 # TODO: 既知のバグを直す
@@ -20,129 +44,164 @@ def test_new_parser_bug():
         assert new_parse("select 'a''b'") == "SELECT 'ab'"  # シングルクォートが消えている
 
 
-def test_new_parser():
-    new_parse = get_parser(start="value", cls_transformer=None)
-
-    assert new_parse("1").data == "int"
-    assert new_parse("1.0").data == "float"
-    assert new_parse("1.1").data == "float"
-    assert new_parse("null").data == "null"
-    assert new_parse("NULL").data == "null"
-    assert new_parse("true").data == "true"
-    assert new_parse("True").data == "true"
-    assert new_parse("false").data == "false"
-    assert new_parse("FALSE").data == "false"
-    assert new_parse("'a'").data == "str"
-    assert new_parse("''").data == "str"
-    assert new_parse("''''").data == "str"
-    assert new_parse("''  ''").data == "str"
-    assert new_parse("'' -- comment\n ''").data == "str"
-    assert len(new_parse("'' -- comment ''").children) == 1
-    assert len(new_parse("'' \n -- comment ''").children) == 1
-    assert len(new_parse("'' -- comment\n ''").children) == 2
-    assert new_parse("'' /* comment */ ''").data == "str"
-    assert len(new_parse("'' /* comment */ ''").children) == 2
-    assert len(new_parse("'' \n /* comment */ ''").children) == 2
-    # assert len(new_parse("'' /* comment \n */ ''").children) == 2  # TODO: 解析エラー
-    assert len(new_parse("'' /* comment */ \n ''").children) == 2
-
-    with pytest.raises(UnexpectedCharacters):
-        assert new_parse("'")
-
-    with pytest.raises(UnexpectedCharacters):
-        assert new_parse("'''")
+_args = (0,)
 
 
-def test_expr():
-    new_parse = get_parser(start="expr", cls_transformer=None)
+@pytest.mark.parametrize(
+    "sql, type, size",
+    [
+        ("1", "int", 1),
+        ("1.0", "float", 1),
+        ("1.1", "float", 1),
+        ("null", "null", *_args),
+        ("NULL", "null", *_args),
+        ("true", "true", *_args),
+        ("True", "true", *_args),
+        ("false", "false", *_args),
+        ("FALSE", "false", *_args),
+        ("'a'", "str", 1),
+        ("''", "str", 1),
+        ("''''", "str", 2),
+        ("''  ''", "str", 2),
+        ("'' -- comment ''", "str", 1),
+        ("'' \n -- comment ''", "str", 1),
+        ("'' -- comment\n ''", "str", 2),
+        ("'' /* comment */ ''", "str", 2),
+        ("'' \n /* comment */ ''", "str", 2),
+        # ("'' /* comment \n */ ''", "str", 2),  # TODO: 解析エラー
+        ("'' /* comment */ \n ''", "str", 2),
+        ("'", UnexpectedCharacters(), *_args),
+        ("'''", UnexpectedCharacters(), *_args),
+    ],
+)
+def test_value_parser(value_parser, sql, type, size):
+    if isinstance(type, Exception):
+        with pytest.raises(type.__class__):
+            value_parser(sql)
+    else:
+        result = value_parser(sql)
+        assert result.data == type
+        assert len(result.children) == size
 
-    assert new_parse('"a"').data == "identifier"
-    assert new_parse("a").data == "identifier"
-    assert new_parse('"a"."b"').data == "identifier"
-    assert new_parse("a.b").data == "identifier"
-    assert new_parse('"a"()').data == "func"
-    assert new_parse("a()").data == "func"
-    assert new_parse('"a"."b"()').data == "func"
-    assert new_parse("a.b()").data == "func"
-    assert new_parse('"a"(1)').data == "func"
-    assert new_parse("a(1)").data == "func"
-    assert new_parse('"a"."b"(1)').data == "func"
-    assert new_parse("a.b(1)").data == "func"
-    assert new_parse("a(\n1)").data == "func"
-    assert new_parse("a(1\n)").data == "func"
-    assert new_parse("a(\n1\n)").data == "func"
+
+@pytest.mark.parametrize(
+    "sql, type",
+    [
+        ('"a"', "identifier"),
+        ("a", "identifier"),
+        ('"a"."b"', "identifier"),
+        ("a.b", "identifier"),
+        ('"a"()', "func"),
+        ("a()", "func"),
+        ('"a"."b"()', "func"),
+        ("a.b()", "func"),
+        ('"a"(1)', "func"),
+        ("a(1)", "func"),
+        ('"a"."b"(1)', "func"),
+        ("a.b(1)", "func"),
+        ('"a"(1,2)', "func"),
+        ("a(1,2)", "func"),
+        ('"a"."b"(1,2)', "func"),
+        ("a.b(1,2)", "func"),
+        ("a(\n1)", "func"),
+        ("a(1\n)", "func"),
+        ("a(\n1\n)", "func"),
+    ],
+)
+def test_expr(expr_parser, sql, type):
+    assert expr_parser(sql).data == type
 
 
-def test_stmt():
-    new_parse = get_parser(start="stmt", cls_transformer=None)
-
-    assert new_parse("select 1")
-    assert new_parse("select *")
-    assert new_parse("select * from users")
-    assert new_parse("select * from users where 1")
-
-
-def test_keywords():
-    new_parse = get_parser(start="stmt")
-
+@pytest.mark.parametrize(
+    "keyword",
+    ["select", "limit"],
+)
+def test_keywords(parser, keyword):
     with pytest.raises(Exception, match="Invalid syntax"):
-        result = new_parse("select limit")
+        result = parser(f"select {keyword}")
 
 
-def test_transform():
-    new_parse = get_parser(start="stmt")
-    # result = new_parse("select 'a''b', sum(1) order by name asc")
-    # result = new_parse("select name + 1 from users")
-    result = new_parse("select name from users")
+@pytest.mark.parametrize(
+    "sql, expect",
+    [
+        ("select 1", "SELECT 1"),
+        ("select *", "SELECT *"),
+        ("select * from users", "SELECT * FROM users"),
+        ("select * from users where 1", "SELECT * FROM users WHERE 1"),
+        ("select name from users", "SELECT name FROM users"),
+        ("select sum() from users", "SELECT sum() FROM users"),
+        ("select sum(1) from users", "SELECT sum(1) FROM users"),
+        ("select sum(1, 2) from users", "SELECT sum(1, 2) FROM users"),
+        ("select sum(name), 1+1 from users", "SELECT sum(name), 1 + 1 FROM users"),
+        ("select id, name from users1", "SELECT id, name FROM users1"),
+    ],
+)
+def test_transform(parser, sql, expect):
+    if isinstance(type, Exception):
+        with pytest.raises(type.__class__):
+            parser(sql)
+    else:
+        result = parser(sql)
+        result.to_sql() == expect
 
-    assert result["type"] == "SELECT"
-    assert [(x["type"], x["name"]) for x in result["returning"]] == [
-        ("identifier", "name")
-    ]
-    assert [(x["type"], x["name"]) for x in result["from_"]] == [
-        ("identifier", "users")
-    ]
-    import json
 
-    result = new_parse("select sum(name), 1 + 1 from users")
-    print(json.dumps(result, indent=2))
-
-    result = new_parse("select 1 from users")
-    assert result
-
-
-def test_join():
-    new_parse = get_parser(start="stmt")
-    result = new_parse(
-        "select * from users1 join users2 on users1.id = users2.id, users1.name = users2.name"
-    )
-    assert result
-    result = new_parse("select * from users1 join users2 using(id)")
-    assert result
-    result = new_parse("select * from users1 inner join users2 using(id)")
-    assert result
-
-    with pytest.raises(UnexpectedCharacters):
-        result = new_parse("select * from users1 inner outer join users2 using(id)")
-
-    result = new_parse("select * from users1 cross join users2 using(id)")
-    assert result
-
-    with pytest.raises(UnexpectedCharacters):
-        result = new_parse("select * from users1 cross outer join users2 using(id)")
-
-    result = new_parse("select * from users1 left join users2 using(id)")
-    assert result
-    result = new_parse("select * from users1 left outer join users2 using(id)")
-    assert result
-    result = new_parse("select * from users1 right join users2 using(id)")
-    assert result
-    result = new_parse("select * from users1 right outer join users2 using(id)")
-    assert result
-    result = new_parse("select * from users1 full join users2 using(id)")
-    assert result
-    result = new_parse("select * from users1 full outer join users2 using(id,name)")
-    assert result
-    result = new_parse("select id, name from users1")
-    assert result
-    assert result.to_sql()
+@pytest.mark.parametrize(
+    "sql, expect",
+    [
+        (
+            "select * from users1 join users2 on users1.id = users2.id, users1.name = users2.name",
+            "SELECT * FROM users1 JOIN users2 ON users1.id = users2.id, users1.name = users2.name",
+        ),
+        (
+            "select * from users1 join users2 using(id)",
+            "SELECT * FROM users1 JOIN users2 USING(id)",
+        ),
+        (
+            "select * from users1 inner join users2 using(id)",
+            "SELECT * FROM users1 INNER JOIN users2 USING(id)",
+        ),
+        (
+            "select * from users1 inner outer join users2 using(id)",
+            UnexpectedCharacters(),
+        ),
+        (
+            "select * from users1 cross join users2 using(id)",
+            "SELECT * FROM users1 CROSS JOIN users2 USING(id)",
+        ),
+        (
+            "select * from users1 cross outer join users2 using(id)",
+            UnexpectedCharacters(),
+        ),
+        (
+            "select * from users1 left join users2 using(id)",
+            "SELECT * FROM users1 LEFT JOIN users2 USING(id)",
+        ),
+        (
+            "select * from users1 left outer join users2 using(id)",
+            "SELECT * FROM users1 LEFT OUTER JOIN users2 USING(id)",
+        ),
+        (
+            "select * from users1 right join users2 using(id)",
+            "SELECT * FROM users1 RIGHT JOIN users2 USING(id)",
+        ),
+        (
+            "select * from users1 right outer join users2 using(id)",
+            "SELECT * FROM users1 RIGHT OUTER JOIN users2 USING(id)",
+        ),
+        (
+            "select * from users1 full join users2 using(id)",
+            "SELECT * FROM users1 FULL JOIN users2 USING(id)",
+        ),
+        (
+            "select * from users1 full outer join users2 using(id,name)",
+            "SELECT * FROM users1 FULL outer JOIN users2 USING(id,name)",
+        ),
+    ],
+)
+def test_join(parser, sql, expect):
+    if isinstance(expect, Exception):
+        with pytest.raises(expect.__class__):
+            parser(sql)
+    else:
+        result = parser(sql)
+        result.to_sql() == expect

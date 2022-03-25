@@ -163,12 +163,12 @@ class Func(Identifier):
         self["type"] = "func"
         self["name"] = name
         self["parent"] = parent
-        self["args"] = args or []
+        self["expr"] = args or []
         self["alias"] = alias
 
     def tokens(self):
         name = self.get_name()
-        args = ", ".join(tokenize(self["args"]))
+        args = ", ".join(tokenize(self["expr"]))
         yield name + "(" + args + ")"
 
         # if self["alias"] is not None:

@@ -108,7 +108,7 @@ STRING_LITERAL: "'" _STRING_ESC_INNER "'"
 NAME: ESCAPED_STRING | CNAME
 STAR: "*"
 identifier: [name "."] (name | STAR)
-func: [name "."] name "(" expr* ")"
+func: [name "."] name "(" [expr ("," expr)*] ")"
 
 COMMENT_SIMPLE: /--[^\n]*/
 COMMENT_BRACKET: /\/\*.+?\*\//
@@ -334,3 +334,10 @@ SIGN: "NOT"i
 // prefix_expr
 
 // jsonとxmlの相互互換性を維持するためjsonmlというjson互換の表現方法がある
+
+
+// 特殊な関数
+// cast(col as datatype)
+// substring(col from '' for '')
+// overlay('Txxxxas' placing 'hom' from 2 for 4)
+// 文字列をエスケープするにはEを使う E'\041'

@@ -66,8 +66,8 @@ class CommonTransformer(Transformer):
         return Identifier(name=name, parent=schema_or_table)
 
     def func(self, tree):
-        schema_or_table, name, expr = tree
-        return Func(name=name, parent=schema_or_table, args=Expressions(expr))
+        schema_or_table, name, *expr = tree
+        return Func(name=name, parent=schema_or_table, args=Expressions(*expr))
 
     def item(self, tree):
         obj, alias = tree
@@ -232,7 +232,7 @@ class SqlTransformer(SelectTransformer):
 
 
 def get_parser(
-    start: Literal["start", "value", "stmt"] = "start",
+    start: Literal["start", "value", "stmt", "expr"] = "start",
     cls_transformer=SqlTransformer,
     parser_type: Literal["earley", "lalr"] = "earley",
 ):
